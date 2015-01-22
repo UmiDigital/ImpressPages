@@ -118,10 +118,10 @@ class Actions
                 continue;
             }
 
-            if (empty($field['multilingual'])) {
-                $fieldObject = $this->subgridConfig->fieldObject($field);
+            $fieldObject = $this->subgridConfig->fieldObject($field);
+            $fieldObject->beforeUpdate($id, $oldData, $data); //the same event for both: multilingual and non multilingual fields. Each field may store it's multilingual state from constructor and act differently on this event if needed. $oldData is not very correct in multilingual context. But that's still the bets way to go.
 
-                $fieldObject->beforeUpdate($id, $oldData, $data);
+            if (empty($field['multilingual'])) {
                 $fieldData = $fieldObject->updateData($data);
                 if (!is_array($fieldData)) {
                     throw new \Ip\Exception("updateData method in class " . esc(
@@ -137,8 +137,7 @@ class Actions
                     }
 
                     $fieldObject = $this->subgridConfig->fieldObject($field);
-                    $fieldObject->beforeCreate(null, $tmpData);
-                    $fieldData = $fieldObject->createData($tmpData);
+                    $fieldData = $fieldObject->updateData($tmpData);
                     if (!is_array($fieldData)) {
                         throw new \Ip\Exception("createData method in class " . esc(
                                 get_class($fieldObject)
@@ -157,9 +156,20 @@ class Actions
             $dbData = call_user_func($this->subgridConfig->updateFilter(), $id, $dbData);
         }
 
+        if ($this->subgridConfig->isMultilingual() && $this->subgridConfig->updateLanguageFilter()) {
+            $languageData = call_user_func($this->subgridConfig->updateLanguageFilter(), $id, $languageData);
+        }
+
         $this->updateDb($this->subgridConfig->rawTableName(), $dbData, $id);
         if (!empty($languageData)) {
             foreach($languageData as $languageCode => $rawData) {
+                $translationExists = ipDb()->selectRow($this->subgridConfig->rawLanguageTableName(), '*', array($this->subgridConfig->languageCodeField() => $languageCode, $this->subgridConfig->languageForeignKeyField() => $id));
+                if (!$translationExists) {
+                    $insertData = $rawData;
+                    $insertData[$this->subgridConfig->languageCodeField()] = $languageCode;
+                    $insertData[$this->subgridConfig->languageForeignKeyField()] = $id;
+                    ipDb()->insert($this->subgridConfig->rawLanguageTableName(), $insertData);
+                }
                 $this->updateDb($this->subgridConfig->rawTableName(), $rawData, $id, $languageCode);
             }
         }
@@ -216,13 +226,14 @@ class Actions
         $dbData = array();
         $languageData = array();
         foreach ($fields as $field) {
-            if (!empty($field['type']) && $field['type'] == 'Tab') {
+            if (!empty($field['type']) && $field['type'] == 'Tab' && empty($field['preview'])) {
                 continue;
             }
 
+            $fieldObject = $this->subgridConfig->fieldObject($field);
+            $fieldObject->beforeCreate(null, $data); //one vent for multilingual and non-multilingual fields.
+
             if (empty($field['multilingual'])) {
-                $fieldObject = $this->subgridConfig->fieldObject($field);
-                $fieldObject->beforeCreate(null, $data);
                 $fieldData = $fieldObject->createData($data);
                 if (!is_array($fieldData)) {
                     throw new \Ip\Exception("createData method in class " . esc(
@@ -238,7 +249,6 @@ class Actions
                     }
 
                     $fieldObject = $this->subgridConfig->fieldObject($field);
-                    $fieldObject->beforeCreate(null, $tmpData);
                     $fieldData = $fieldObject->createData($tmpData);
                     if (!is_array($fieldData)) {
                         throw new \Ip\Exception("createData method in class " . esc(
@@ -276,14 +286,17 @@ class Actions
             $dbData = call_user_func($this->subgridConfig->createFilter(), $dbData);
         }
 
+        if ($this->subgridConfig->isMultilingual() && $this->subgridConfig->createLanguageFilter()) {
+            $languageData = call_user_func($this->subgridConfig->createLanguageFilter(), $languageData);
+        }
 
 
 
         $recordId = ipDb()->insert($this->subgridConfig->rawTableName(), $dbData);
         if (!empty($languageData)) {
             foreach($languageData as $languageCode => $rawData) {
-                $rawData['language'] = $languageCode;
-                $rawData['itemId'] = $recordId;
+                $rawData[$this->subgridConfig->languageCodeField()] = $languageCode;
+                $rawData[$this->subgridConfig->languageForeignKeyField()] = $recordId;
                 ipDb()->insert($this->subgridConfig->rawLanguageTableName(), $rawData);
             }
         }
