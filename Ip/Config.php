@@ -135,17 +135,6 @@ class Config
         }
     }
 
-    public function assignArrayByPath(&$arr, $path, $value) {
-        $keys = explode('.', $path);
-
-        while ($key = array_shift($keys)) {
-            $arr = &$arr[$key];
-        }
-
-        $arr = $value;
-    }
-
-
     public function set($name, $value)
     {
         if ($name == 'db' && $value) {
